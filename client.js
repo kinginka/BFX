@@ -1,7 +1,34 @@
-'use strict'
+import { PeerRPCClient } from "grenache-nodejs-http";
+import Link from "grenache-nodejs-link";
+import { exec } from 'child_process';
+import * as dotenv from 'dotenv'
 
-const { PeerRPCClient } = require('grenache-nodejs-http')
-const Link = require('grenache-nodejs-link')
+dotenv.config()
+
+const {
+    SIDE,
+    PRICE,
+    QUANTITY,
+    TOKEN,
+} = process.env
+
+console.log(SIDE, PRICE, QUANTITY, TOKEN)
+
+const generateWalletAddress = async () => {
+    return new Promise((resolve, reject) => {
+        exec('openssl rand -hex 20', (error, stdout, stderr) => {
+            if (error) reject(error)
+            if (stderr) reject(stderr)
+            resolve(`0x${stdout.trim()}`)
+        })
+    })
+}
+
+const randomizer = (min, max) => {
+    return Math.floor(Math.random() * (max - min + 1)) + min
+}
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
 const link = new Link({
     grape: 'http://127.0.0.1:30001'
@@ -11,11 +38,61 @@ link.start()
 const peer = new PeerRPCClient(link, {})
 peer.init()
 
-peer.request('rpc_test', { msg: 'hello' }, { timeout: 10000 }, (err, data) => {
+// const walletAddress = "0x1da0e6EC3b90eD568739359381b73c0797d7e4a4"
+const walletAddress = await generateWalletAddress()
+const balance = {
+    address: walletAddress,
+    eth: randomizer(10, 10000),
+    bnb: randomizer(10, 10000),
+    usdc: randomizer(10, 10000),
+}
+const tokens = ['eth', 'bnb', 'usdc']
+const determination = ['sell', 'buy']
+let balanceHash;
+
+
+link.put({ v: JSON.stringify(balance) }, (err, hash) => {
+    console.log(`Balance saved to the DHT`, err, hash);
+    balanceHash = hash
+    peer.map('rpc_test', { msg: 'hello', hash: balanceHash }, { timeout: 10000 }, (err, data) => {
+        if (err) {
+            console.error(err)
+            process.exit(-1)
+        }
+        console.log(data)
+    })
+})
+
+const order = {
+    clientId: walletAddress,
+    token: TOKEN,
+    side: SIDE,
+    price: PRICE,
+    quantity: QUANTITY,
+}
+
+// const order = {
+//     clientId: walletAddress,
+//     token: tokens[randomizer(0, 2)],
+//     side: determination[randomizer(0, 1)],
+//     price: randomizer(0, 5000),
+//     quantity: randomizer(0, 10000),
+// }
+
+peer.request('createOrder', order, { timeout: 10000 }, (err, data) => {
     if (err) {
         console.error(err)
         process.exit(-1)
     }
-    console.log(data) // { msg: 'world' }
+    console.log(data)
 })
 
+await sleep(1000)
+
+peer.request('getOrderInstance', { address: walletAddress }, { timeout: 10000 }, (err, data) => {
+    if (err) {
+        console.error(err)
+        process.exit(-1)
+    }
+    console.log("Here is the OrderInstance", data)
+})
