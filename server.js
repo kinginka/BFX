@@ -1,7 +1,9 @@
 
 import { PeerRPCServer } from 'grenache-nodejs-http'
 import Link from 'grenache-nodejs-link'
+import { Mutex } from 'async-mutex'
 
+const mutex = new Mutex()
 const sleep = async (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
 const link = new Link({
@@ -15,8 +17,8 @@ const peer = new PeerRPCServer(link, {
 peer.init()
 
 let orderbookHash
-let flag = false
 const clients = {}
+
 const currentEtherToUSDC = 2000
 const currentBNBToUSDC = 300
 
@@ -26,7 +28,7 @@ service.listen(port)
 
 // initalize the orderbooks
 link.put({ v: JSON.stringify([]) }, (err, hash) => {
-    // console.log(`orderbook saved to the DHT`, err, hash);
+    console.log(`orderbook saved to the DHT`, err, hash);
     orderbookHash = hash
 })
 
@@ -36,13 +38,18 @@ setInterval(function () {
     link.announce('getOrderInstance', service.port, {})
 }, 1000)
 
-service.on('request', (rid, key, payload, handler) => {
+
+service.on('request', async (rid, key, payload, handler) => {
     // console.log(rid)
     // console.log(key)
-    // console.log(payload) //  { msg: 'hello' }
+    console.log("Payload", payload) //  { msg: 'hello' }
 
     // First say hello and register the client the wallet address and its balance
     if (key === 'rpc_test') {
+
+        // acquire the lock before processing the request
+        const release = await mutex.acquire()
+
         const { hash } = payload
         if (hash) {
             link.get(hash, (err, res) => {
@@ -55,34 +62,45 @@ service.on('request', (rid, key, payload, handler) => {
                 // clients.push({ hash: balance })
             })
         }
+
+        // release the lock once the critical section is complete
+        release()
+
         handler.reply(null, { msg: 'world' })
     }
 
     // Creates order and matches order
-    if (key === 'createOrder' && flag == false) {
+    if (key === 'createOrder') {
         const order = payload
         const clientBalance = clients[order.clientId]
-        // console.log('Client Balance', clientBalance)
+        console.log('Client Balance', clientBalance)
 
         // Check if the client can buy or sell
         if (order.side === 'buy') {
             // check if the client can buy
             if (order.token === 'eth' && clientBalance.usdc >= order.price * order.quantity) {
-                handler.reply(null, { msg: 'Creating Order Failed' })
+                handler.reply(null, { msg: 'Creating Order Failed, Insufficient Ether' })
+                return
             }
             if (order.token === 'bnb' && clientBalance.usdc >= order.price * order.quantity) {
-                handler.reply(null, { msg: 'Creating Order Failed' })
+                handler.reply(null, { msg: 'Creating Order Failed, Insufficient BNB' })
+                return
             }
         } else {
             // check if the client can sell
             if (order.token === 'eth' && clientBalance.eth <= order.quantity) {
-                handler.reply(null, { msg: 'Creating Order Failed' })
+                handler.reply(null, { msg: 'Creating Order Failed, Insufficient USDC' })
+                return
             }
             if (order.token === 'bnb' && clientBalance.bnb <= order.quantity) {
-                handler.reply(null, { msg: 'Creating Order Failed' })
+                handler.reply(null, { msg: 'Creating Order Failed, Insufficient USDC' })
+                return
             }
         }
-        flag = true
+
+        // acquire the lock before processing the request
+        const release = await mutex.acquire()
+
         link.get(orderbookHash, async (err, res) => {
             // console.log('orderbookHash requested to the DHT', err, res)
             if (err) {
@@ -173,8 +191,10 @@ service.on('request', (rid, key, payload, handler) => {
                 orderbookHash = hash
             })
         })
+        // release the lock once the critical section is complete
+        release()
+
         handler.reply(null, { msg: 'Successfully Added the order' })
-        flag = false
     }
 
     // Return OrderBook instance to client
