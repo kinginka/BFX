@@ -28,7 +28,7 @@ const randomizer = (min, max) => {
     return Math.floor(Math.random() * (max - min + 1)) + min
 }
 
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+const sleep = async (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
 const link = new Link({
     grape: 'http://127.0.0.1:30001'
@@ -42,9 +42,9 @@ peer.init()
 const walletAddress = await generateWalletAddress()
 const balance = {
     address: walletAddress,
-    eth: randomizer(10, 10000),
-    bnb: randomizer(10, 10000),
-    usdc: randomizer(10, 10000),
+    eth: randomizer(1, 10),
+    bnb: randomizer(1, 100),
+    usdc: randomizer(50000, 100000),
 }
 const tokens = ['eth', 'bnb', 'usdc']
 const determination = ['sell', 'buy']
@@ -53,6 +53,9 @@ let balanceHash;
 
 link.put({ v: JSON.stringify(balance) }, (err, hash) => {
     console.log(`Balance saved to the DHT`, err, hash);
+    if (hash == 'No nodes to query') {
+        process.exit(-1);
+    }
     balanceHash = hash
     peer.map('rpc_test', { msg: 'hello', hash: balanceHash }, { timeout: 10000 }, (err, data) => {
         if (err) {
@@ -62,6 +65,8 @@ link.put({ v: JSON.stringify(balance) }, (err, hash) => {
         console.log(data)
     })
 })
+
+await sleep(2000)
 
 const order = {
     clientId: walletAddress,
@@ -87,7 +92,7 @@ peer.request('createOrder', order, { timeout: 10000 }, (err, data) => {
     console.log(data)
 })
 
-await sleep(1000)
+await sleep(2000)
 
 peer.request('getOrderInstance', { address: walletAddress }, { timeout: 10000 }, (err, data) => {
     if (err) {
@@ -96,3 +101,5 @@ peer.request('getOrderInstance', { address: walletAddress }, { timeout: 10000 },
     }
     console.log("Here is the OrderInstance", data)
 })
+
+
