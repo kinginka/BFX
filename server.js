@@ -201,6 +201,10 @@ service.on('request', async (rid, key, payload, handler) => {
     if (key === 'getOrderInstance') {
         const { address } = payload
         // console.log('address', address)
+
+        // acquire the lock before processing the request
+        const release = await mutex.acquire()
+
         link.get(orderbookHash, (err, res) => {
             // console.log('orderbookHash requested to the DHT', err, res)
             if (err) {
@@ -211,5 +215,8 @@ service.on('request', async (rid, key, payload, handler) => {
             const matches = orderbooks.filter((o) => o.clientId === address)
             handler.reply(null, { OrderBooks: matches })
         })
+
+        // release the lock once the critical section is complete
+        release()
     }
 })
