@@ -1,6 +1,6 @@
 # BFX Test Assignment
 
-## Step up environment
+## Set up environment
 
 ```sh
 npm install
